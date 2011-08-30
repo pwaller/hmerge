@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 
 #from IPython.Shell import IPShellEmbed; ip = IPShellEmbed(["-pdb"])
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 from contextlib import contextmanager, closing
 from cPickle import dumps, loads, UnpicklingError
 from gc import collect, get_count, get_objects
@@ -225,16 +225,34 @@ class ParameterMerger(DefaultMerger):
         new_value = self.merged_object.GetVal() + next_object.GetVal()
         self.merged_object.SetVal(new_value)
 
+def dict_merge(lhs, rhs):
+    result = {}
+    for key in (set(lhs) | set(rhs)):
+        a, b = lhs.get(key, None), rhs.get(key, None)
+        if a and b:
+            assert type(a) == type(b)
+            merge_func = PickledStringMerger.pyobject_merge_registry.get(type(a))
+            result[key] = merge_func(a, b)
+        else:
+            # Take whichever of a and b are populated
+            result[key] = a or b
+    return result
+
 @define_merger(R.TObjString)
 class PickledStringMerger(DefaultMerger):
 
+
     pyobject_merge_registry = {
+        int: int.__add__,
+        long: long.__add__,
         set: set.union,
         list: list.__add__,
         str: str.__add__,
         unicode: unicode.__add__,
+        dict: dict_merge,
+        defaultdict: dict_merge,
     }
-    
+
     def unpickle_string(self, string):
         try:
             return loads(string.GetName())
